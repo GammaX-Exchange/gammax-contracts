@@ -24,7 +24,18 @@ describe("Gammax Treasury Wallet", () => {
   const swapedAmount = ethers.utils.parseUnits("20", 18);
 
   const mintAmount = ethers.utils.parseUnits("2000", 18);
-
+  const operator = before(async () => {
+    [owner] = await ethers.getSigners();
+    account1 = await ethers.getImpersonatedSigner(
+      "0x3122c212889A19e9035B25117Ac9DF7FbB58FADD"
+    );
+    account2 = await ethers.getImpersonatedSigner(
+      "0xB7180670fc3e7a4Ccd8fE4bcBEcAe2bEaA7d92E0"
+    );
+    account3 = await ethers.getImpersonatedSigner(
+      "0xF62A9568a6aD03c96812E3C7D5879f6D5c1a14Fe"
+    );
+  });
 
   beforeEach(async () => {
     const GammaxExchange = <GammaxExchangeTreasuryFactory>(
@@ -33,7 +44,6 @@ describe("Gammax Treasury Wallet", () => {
   });
 
   it("Gammax Treasury Token", async () => {
-
     expect(true).to.be.equal(true);
   });
 });
