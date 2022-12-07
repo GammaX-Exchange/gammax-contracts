@@ -93,6 +93,17 @@ contract GammaxExchangeTreasury is Ownable {
         emit TransferToCounterParty(isETH, currency, amount);
     }
 
+    function encodeMessage(
+        uint256 id,
+        address payable to,
+        bool isETH,
+        address currency,
+        uint256 amount,
+        uint256 deadline
+    ) public pure returns (bytes memory data) {
+        data = abi.encode(id, to, isETH, currency, amount, deadline);
+    }
+
     function claim(bytes calldata message, bytes calldata signature)
         external
         notPaused
@@ -102,7 +113,6 @@ contract GammaxExchangeTreasury is Ownable {
             signer == truthHolder,
             "only accept truthHolder signed message"
         );
-
         (
             uint256 id,
             address payable to,
