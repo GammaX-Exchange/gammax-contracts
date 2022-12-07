@@ -10,7 +10,17 @@ require("dotenv").config();
 const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
   etherscan: {
-    apiKey: "",
+    apiKey: process.env.KEY,
+    customChains: [
+      {
+        network: "goerli",
+        chainId: 5,
+        urls: {
+          apiURL: "https://api-goerli.etherscan.io/api",
+          browserURL: "https://goerli.etherscan.io",
+        },
+      },
+    ],
   },
   networks: {
     hardhat: {
@@ -21,6 +31,10 @@ const config: HardhatUserConfig = {
         url: `https://mainnet.infura.io/v3/${process.env.INFURAID}`,
         blockNumber: 15941122,
       },
+    },
+    goerli: {
+      url: `https://goerli.infura.io/v3/${process.env.INFURAID}`,
+      accounts: [process.env.MMNOMIC as string],
     },
     localhost: {
       chainId: 31337,
