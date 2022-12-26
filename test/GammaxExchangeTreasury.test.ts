@@ -44,7 +44,7 @@ describe("Gammax Treasury Wallet", () => {
     const USDT = <UsdtFactory>await ethers.getContractFactory("USDT");
     USDTToken = await USDT.deploy();
     gammaxTreasury = await GammaxExchange.deploy(
-      truthHolder.address,
+      // truthHolder.address,
       opAccount.address,
       counterParty.address
     );
@@ -106,10 +106,6 @@ describe("Gammax Treasury Wallet", () => {
     });
     // notSignature = await account1.signMessage(utils.arrayify(msg));
   });
-  it("Decode Account", async () => {
-    const acc = await gammaxTreasury.source(msg, signature);
-    expect(acc).to.be.equal(truthHolder.address);
-  });
   it("Trasfer token or eth to CounterParty", async () => {
     const oldBalance = await ethers.provider.getBalance(counterParty.address);
     const oldTokenBalance = await USDTToken.balanceOf(counterParty.address);
@@ -162,56 +158,7 @@ describe("Gammax Treasury Wallet", () => {
     );
   });
   it("Claim", async () => {
-    await expect(gammaxTreasury.claim(msgHash, signature)).to.be.revertedWith(
-      "only accept truthHolder signed message"
-    );
-    const latestTime = await getLatestBlockTimestamp();
-    const msgData = await gammaxTreasury.encodeMessage(
-      0,
-      account1.address,
-      true,
-      "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-      ethers.utils.parseEther("0.5"),
-      latestTime + duration
-    );
-    const sigData = await truthHolder.signMessage(
-      utils.arrayify(utils.solidityKeccak256(["bytes"], [msgData]))
-    );
-    const msgData1 = await gammaxTreasury.encodeMessage(
-      1,
-      account1.address,
-      false,
-      USDTToken.address,
-      ethers.utils.parseEther("0.5"),
-      latestTime
-    );
-
-    const sigData1 = await truthHolder.signMessage(
-      utils.arrayify(utils.solidityKeccak256(["bytes"], [msgData1]))
-    );
-    await expect(gammaxTreasury.claim(msgData, sigData)).to.emit(
-      gammaxTreasury,
-      "Claimed"
-    );
-    await expect(gammaxTreasury.claim(msgData, sigData)).to.be.revertedWith(
-      "already claimed"
-    );
-    await expect(gammaxTreasury.claim(msgData1, sigData1)).to.be.revertedWith(
-      "currency not support"
-    );
-    await gammaxTreasury._addCurrency(USDTToken.address);
-    await expect(gammaxTreasury.claim(msgData1, sigData1)).to.be.revertedWith(
-      "already passed deadline"
-    );
-    await gammaxTreasury._pause();
-    await expect(gammaxTreasury.claim(msgHash, signature)).to.be.revertedWith(
-      "paused"
-    );
-    await expect(gammaxTreasury.claim(msgHash, signature)).to.be.revertedWith(
-      "paused"
-    );
-    // const acc = await gammaxTreasury.source(msg, signature);
-    // expect(acc).to.be.equal(truthHolder.address);
+    expect(true).to.be.equal(true);
   });
   it("Pause", async () => {
     await expect(gammaxTreasury.connect(account1)._pause()).to.be.revertedWith(
@@ -229,22 +176,6 @@ describe("Gammax Treasury Wallet", () => {
     await expect(gammaxTreasury._unpause()).to.emit(gammaxTreasury, "Unpaused");
     const paused = await gammaxTreasury.paused();
     expect(paused).to.be.equal(false);
-  });
-  it("Change Truth Holder", async () => {
-    await expect(
-      gammaxTreasury
-        .connect(account1)
-        ._changeTruthHolder("0x903e3E9b3F9bC6401Ad77ec8953Eb2FB6fEFC3a3")
-    ).to.be.revertedWith("Ownable: caller is not the owner");
-    const oldHolder = await gammaxTreasury.truthHolder();
-    expect(oldHolder).to.be.equal(truthHolder.address);
-    await expect(
-      gammaxTreasury._changeTruthHolder(
-        "0x903e3E9b3F9bC6401Ad77ec8953Eb2FB6fEFC3a3"
-      )
-    ).to.emit(gammaxTreasury, "NewTruthHolder");
-    const newHolder = await gammaxTreasury.truthHolder();
-    expect(newHolder).to.be.equal("0x903e3E9b3F9bC6401Ad77ec8953Eb2FB6fEFC3a3");
   });
   it("Set Operator", async () => {
     await expect(
@@ -312,5 +243,111 @@ describe("Gammax Treasury Wallet", () => {
       "0xdAC17F958D2ee523a2206206994597C13D831ec7"
     );
     expect(deletedCurrency).to.be.equal(false);
+  });
+  it("add truthHolder", async () => {
+    await expect(
+      gammaxTreasury.connect(account1)._addTruthHolder(truthHolder.address)
+    ).to.be.revertedWith("Ownable: caller is not the owner");
+    await expect(gammaxTreasury._addTruthHolder(truthHolder.address)).to.emit(
+      gammaxTreasury,
+      "NewTruthHolder"
+    );
+    await expect(
+      gammaxTreasury._addTruthHolder(truthHolder.address)
+    ).to.be.revertedWith("Existed holder.");
+    const firstTruth = await gammaxTreasury.truthHolders(0);
+    expect(firstTruth).to.be.equal(truthHolder.address);
+  });
+
+  it("remove truthHolder", async () => {
+    await expect(
+      gammaxTreasury.connect(account1)._addTruthHolder(truthHolder.address)
+    ).to.be.revertedWith("Ownable: caller is not the owner");
+    await expect(gammaxTreasury._addTruthHolder(truthHolder.address)).to.emit(
+      gammaxTreasury,
+      "NewTruthHolder"
+    );
+    await expect(gammaxTreasury._addTruthHolder(account2.address)).to.emit(
+      gammaxTreasury,
+      "NewTruthHolder"
+    );
+    const oldHolderList = await gammaxTreasury._getTruthHolder();
+    expect(oldHolderList.length).to.be.equal(2);
+    await gammaxTreasury._removeTruthHolder(account2.address);
+
+    const newHolderList = await gammaxTreasury._getTruthHolder();
+    expect(newHolderList.length).to.be.equal(1);
+  });
+  it("add claim request", async () => {
+    const latestTime = await getLatestBlockTimestamp();
+
+    await expect(
+      gammaxTreasury.addClaimRequest(
+        account1.address,
+        true,
+        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        ethers.utils.parseEther("0.5"),
+        latestTime + duration
+      )
+    ).to.emit(gammaxTreasury, "ClaimRequestCreated");
+    const request = await gammaxTreasury.requestList(1);
+    expect(request.isETH).to.be.equal(true);
+    expect(request.amount).to.be.equal(ethers.utils.parseEther("0.5"));
+  });
+  it("Claim", async () => {
+    const latestTime = await getLatestBlockTimestamp();
+
+    await expect(
+      gammaxTreasury.addClaimRequest(
+        account1.address,
+        true,
+        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        ethers.utils.parseEther("0.5"),
+        latestTime + duration
+      )
+    ).to.emit(gammaxTreasury, "ClaimRequestCreated");
+    await expect(
+      gammaxTreasury.addClaimRequest(
+        account1.address,
+        true,
+        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        ethers.utils.parseEther("0.5"),
+        latestTime
+      )
+    ).to.emit(gammaxTreasury, "ClaimRequestCreated");
+    await expect(
+      gammaxTreasury.addClaimRequest(
+        account1.address,
+        false,
+        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        ethers.utils.parseEther("0.5"),
+        latestTime + duration
+      )
+    ).to.emit(gammaxTreasury, "ClaimRequestCreated");
+    await gammaxTreasury._addTruthHolder(truthHolder.address);
+    await gammaxTreasury._addTruthHolder(account2.address);
+    await expect(gammaxTreasury.connect(account1).claim(1)).to.be.revertedWith(
+      "only truthHolder can call"
+    );
+    await expect(gammaxTreasury.connect(account2).claim(3)).to.be.revertedWith(
+      "currency not support"
+    );
+    await gammaxTreasury.connect(truthHolder).claim(2);
+    await expect(gammaxTreasury.connect(account2).claim(2)).to.be.revertedWith(
+      "already passed deadline"
+    );
+    await gammaxTreasury.connect(truthHolder).claim(1);
+    const oldBalance = await ethers.provider.getBalance(account1.address);
+    await expect(gammaxTreasury.connect(account2).claim(1)).to.emit(
+      gammaxTreasury,
+      "Claimed"
+    );
+    const newBalance = await ethers.provider.getBalance(account1.address);
+    expect(newBalance.sub(oldBalance)).to.be.equal(
+      ethers.utils.parseEther("0.5")
+    );
+    await expect(gammaxTreasury.connect(account2).claim(1)).to.be.revertedWith(
+      "already approved"
+    );
   });
 });

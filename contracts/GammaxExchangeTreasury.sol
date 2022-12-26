@@ -5,14 +5,34 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
 
 pragma experimental ABIEncoderV2;
 
 contract GammaxExchangeTreasury is Ownable {
     using SafeERC20 for IERC20;
+    using Counters for Counters.Counter;
+    Counters.Counter private _requestId;
 
+    struct ClaimRequest {
+        bool isETH;
+        address payable to;
+        address currency;
+        uint256 amount;
+        uint256 approveCount;
+        uint256 deadline;
+        mapping(address => bool) approveStatus;
+    }
     event ReceiveEther(address sender, uint256 amount);
     event Claimed(
+        uint256 indexed id,
+        address indexed to,
+        bool isETH,
+        address currency,
+        uint256 amount,
+        uint256 deadline
+    );
+    event ClaimRequestCreated(
         uint256 indexed id,
         address indexed to,
         bool isETH,
@@ -23,18 +43,20 @@ contract GammaxExchangeTreasury is Ownable {
     event TransferToCounterParty(bool isETH, address currency, uint256 amount);
     event Paused();
     event Unpaused();
-    event NewTruthHolder(address oldTruthHolder, address newTruthHolder);
+    event NewTruthHolder(address newTruthHolder);
     event NewOperator(address oldOperator, address newOperator);
     event NewCounterParty(address oldCounterParty, address newCounterParty);
     event AddCurrency(address indexed currency);
     event RemoveCurrency(address indexed currency);
 
     bool public paused;
-    address public truthHolder;
+    address[] public truthHolders;
     address public operator;
     address payable public counterParty;
     mapping(address => bool) public supportCurrency;
     mapping(uint256 => uint256) public claimHistory;
+    mapping(address => bool) public isTruthHolder;
+    mapping(uint256 => ClaimRequest) public requestList;
 
     modifier notPaused() {
         require(!paused, "paused");
@@ -46,13 +68,13 @@ contract GammaxExchangeTreasury is Ownable {
         _;
     }
 
-    constructor(
-        address truthHolder_,
-        address operator_,
-        address payable counterParty_
-    ) {
+    modifier onlyHolder() {
+        require(isTruthHolder[msg.sender], "only truthHolder can call");
+        _;
+    }
+
+    constructor(address operator_, address payable counterParty_) {
         paused = false;
-        truthHolder = truthHolder_;
         operator = operator_;
         counterParty = counterParty_;
     }
@@ -93,58 +115,57 @@ contract GammaxExchangeTreasury is Ownable {
         emit TransferToCounterParty(isETH, currency, amount);
     }
 
-    function encodeMessage(
-        uint256 id,
+    function addClaimRequest(
         address payable to,
         bool isETH,
         address currency,
         uint256 amount,
         uint256 deadline
-    ) public pure returns (bytes memory data) {
-        data = abi.encode(id, to, isETH, currency, amount, deadline);
+    ) external {
+        _requestId.increment();
+        uint256 _reqID = _requestId.current();
+        requestList[_reqID].isETH = isETH;
+        requestList[_reqID].to = to;
+        requestList[_reqID].currency = currency;
+        requestList[_reqID].amount = amount;
+        requestList[_reqID].deadline = deadline;
+        emit ClaimRequestCreated(_reqID, to, isETH, currency, amount, deadline);
     }
 
-    function claim(bytes calldata message, bytes calldata signature)
-        external
-        notPaused
-    {
-        address signer = source(message, signature);
+    function claim(uint256 _id) external notPaused onlyHolder {
         require(
-            signer == truthHolder,
-            "only accept truthHolder signed message"
+            requestList[_id].isETH ||
+                supportCurrency[requestList[_id].currency],
+            "currency not support"
         );
-        (
-            uint256 id,
-            address payable to,
-            bool isETH,
-            address currency,
-            uint256 amount,
-            uint256 deadline
-        ) = abi.decode(
-                message,
-                (uint256, address, bool, address, uint256, uint256)
+        require(
+            !requestList[_id].approveStatus[msg.sender],
+            "already approved"
+        );
+        uint256 truthLen = truthHolders.length;
+        requestList[_id].approveStatus[msg.sender] = true;
+        requestList[_id].approveCount++;
+        if (requestList[_id].approveCount == truthLen) {
+            require(
+                block.timestamp < requestList[_id].deadline,
+                "already passed deadline"
             );
-        require(claimHistory[id] == 0, "already claimed");
-        require(isETH || supportCurrency[currency], "currency not support");
-        require(block.timestamp < deadline, "already passed deadline");
-
-        claimHistory[id] = block.number;
-        _transfer(to, isETH, currency, amount);
-        emit Claimed(id, to, isETH, currency, amount, deadline);
-    }
-
-    function source(bytes memory message, bytes memory signature)
-        public
-        pure
-        returns (address)
-    {
-        bytes32 hash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(message)
-            )
-        );
-        return ECDSA.recover(hash, signature);
+            claimHistory[_id] = block.number;
+            _transfer(
+                requestList[_id].to,
+                requestList[_id].isETH,
+                requestList[_id].currency,
+                requestList[_id].amount
+            );
+            emit Claimed(
+                _id,
+                requestList[_id].to,
+                requestList[_id].isETH,
+                requestList[_id].currency,
+                requestList[_id].amount,
+                requestList[_id].deadline
+            );
+        }
     }
 
     function _pause() external onlyOwner {
@@ -155,12 +176,6 @@ contract GammaxExchangeTreasury is Ownable {
     function _unpause() external onlyOwner {
         paused = false;
         emit Unpaused();
-    }
-
-    function _changeTruthHolder(address newTruthHolder) external onlyOwner {
-        address oldHolder = truthHolder;
-        truthHolder = newTruthHolder;
-        emit NewTruthHolder(oldHolder, newTruthHolder);
     }
 
     function _setOperator(address newOperator) external onlyOwner {
@@ -186,5 +201,28 @@ contract GammaxExchangeTreasury is Ownable {
     function _removeCurrency(address currency) external onlyOwner {
         delete supportCurrency[currency];
         emit RemoveCurrency(currency);
+    }
+
+    function _addTruthHolder(address newTruthHolder) external onlyOwner {
+        require(!isTruthHolder[newTruthHolder], "Existed holder.");
+        truthHolders.push(newTruthHolder);
+        isTruthHolder[newTruthHolder] = true;
+        emit NewTruthHolder(newTruthHolder);
+    }
+
+    function _removeTruthHolder(address _truthHolder) external onlyOwner {
+        require(isTruthHolder[_truthHolder], "Not existed holder.");
+        uint256 truthHolderCount = truthHolders.length;
+        isTruthHolder[_truthHolder] = false;
+        for (uint8 i = 0; i < truthHolderCount; i++) {
+            if (truthHolders[i] == _truthHolder) {
+                truthHolders[i] = truthHolders[truthHolderCount - 1];
+                truthHolders.pop();
+            }
+        }
+    }
+
+    function _getTruthHolder() public view returns (address[] memory) {
+        return truthHolders;
     }
 }
