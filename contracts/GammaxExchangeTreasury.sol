@@ -13,25 +13,19 @@ contract GammaxExchangeTreasury is Ownable {
 
     event ReceiveEther(address sender, uint256 amount);
     event Claimed(
-        uint256 indexed id,
         address indexed to,
         bool isETH,
         address currency,
-        uint256 amount,
-        uint256 deadline
+        uint256 amount
     );
     event TransferToCounterParty(bool isETH, address currency, uint256 amount);
     event Paused();
     event Unpaused();
-    event NewTruthHolder(address oldTruthHolder, address newTruthHolder);
-    event NewOperator(address oldOperator, address newOperator);
     event NewCounterParty(address oldCounterParty, address newCounterParty);
     event AddCurrency(address indexed currency);
     event RemoveCurrency(address indexed currency);
 
     bool public paused;
-    address public truthHolder;
-    address public operator;
     address payable public counterParty;
     mapping(address => bool) public supportCurrency;
     mapping(uint256 => uint256) public claimHistory;
@@ -41,19 +35,8 @@ contract GammaxExchangeTreasury is Ownable {
         _;
     }
 
-    modifier onlyOperator() {
-        require(msg.sender == operator, "only operator can call");
-        _;
-    }
-
-    constructor(
-        address truthHolder_,
-        address operator_,
-        address payable counterParty_
-    ) {
+    constructor(address payable counterParty_) {
         paused = false;
-        truthHolder = truthHolder_;
-        operator = operator_;
         counterParty = counterParty_;
     }
 
@@ -88,63 +71,21 @@ contract GammaxExchangeTreasury is Ownable {
         bool isETH,
         address currency,
         uint256 amount
-    ) external onlyOperator {
+    ) external onlyOwner {
         _transfer(counterParty, isETH, currency, amount);
         emit TransferToCounterParty(isETH, currency, amount);
     }
 
-    function encodeMessage(
-        uint256 id,
+    function claim(
         address payable to,
         bool isETH,
         address currency,
-        uint256 amount,
-        uint256 deadline
-    ) public pure returns (bytes memory data) {
-        data = abi.encode(id, to, isETH, currency, amount, deadline);
-    }
-
-    function claim(bytes calldata message, bytes calldata signature)
-        external
-        notPaused
-    {
-        address signer = source(message, signature);
-        require(
-            signer == truthHolder,
-            "only accept truthHolder signed message"
-        );
-        (
-            uint256 id,
-            address payable to,
-            bool isETH,
-            address currency,
-            uint256 amount,
-            uint256 deadline
-        ) = abi.decode(
-                message,
-                (uint256, address, bool, address, uint256, uint256)
-            );
-        require(claimHistory[id] == 0, "already claimed");
+        uint256 amount
+    ) external onlyOwner notPaused {
         require(isETH || supportCurrency[currency], "currency not support");
-        require(block.timestamp < deadline, "already passed deadline");
 
-        claimHistory[id] = block.number;
         _transfer(to, isETH, currency, amount);
-        emit Claimed(id, to, isETH, currency, amount, deadline);
-    }
-
-    function source(bytes memory message, bytes memory signature)
-        public
-        pure
-        returns (address)
-    {
-        bytes32 hash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(message)
-            )
-        );
-        return ECDSA.recover(hash, signature);
+        emit Claimed(to, isETH, currency, amount);
     }
 
     function _pause() external onlyOwner {
@@ -155,18 +96,6 @@ contract GammaxExchangeTreasury is Ownable {
     function _unpause() external onlyOwner {
         paused = false;
         emit Unpaused();
-    }
-
-    function _changeTruthHolder(address newTruthHolder) external onlyOwner {
-        address oldHolder = truthHolder;
-        truthHolder = newTruthHolder;
-        emit NewTruthHolder(oldHolder, newTruthHolder);
-    }
-
-    function _setOperator(address newOperator) external onlyOwner {
-        address oldOperator = operator;
-        operator = newOperator;
-        emit NewOperator(oldOperator, newOperator);
     }
 
     function _setCounterParty(address payable newCounterParty)

@@ -1,4 +1,5 @@
 import { ethers } from "hardhat";
+
 const hre = require("hardhat");
 
 async function main() {
@@ -11,9 +12,7 @@ async function main() {
     "GammaxExchangeTreasury"
   );
   const treasury = await GammaxExchange.deploy(
-    "0x3122c212889A19e9035B25117Ac9DF7FbB58FADD",
-    "0xB7180670fc3e7a4Ccd8fE4bcBEcAe2bEaA7d92E0",
-    "0xF62A9568a6aD03c96812E3C7D5879f6D5c1a14Fe"
+    "0xA3b6c61782c4969C6189466D9306eB1e9b5Ca406"
   );
   console.log("address:", treasury.address);
   // await hre.run("verify:verify", {
