@@ -43,11 +43,7 @@ describe("Gammax Treasury Wallet", () => {
     );
     const USDT = <UsdtFactory>await ethers.getContractFactory("USDT");
     USDTToken = await USDT.deploy();
-    gammaxTreasury = await GammaxExchange.deploy(
-      truthHolder.address,
-      opAccount.address,
-      counterParty.address
-    );
+    gammaxTreasury = await GammaxExchange.deploy(counterParty.address);
     const latestTime = await getLatestBlockTimestamp();
     msg = ethers.utils.solidityPack(
       ["uint256", "address", "bool", "address", "uint256", "uint256"],
@@ -106,10 +102,6 @@ describe("Gammax Treasury Wallet", () => {
     });
     // notSignature = await account1.signMessage(utils.arrayify(msg));
   });
-  it("Decode Account", async () => {
-    const acc = await gammaxTreasury.source(msg, signature);
-    expect(acc).to.be.equal(truthHolder.address);
-  });
   it("Trasfer token or eth to CounterParty", async () => {
     const oldBalance = await ethers.provider.getBalance(counterParty.address);
     const oldTokenBalance = await USDTToken.balanceOf(counterParty.address);
@@ -121,40 +113,32 @@ describe("Gammax Treasury Wallet", () => {
           USDTToken.address,
           ethers.utils.parseEther("1")
         )
-    ).to.be.revertedWith("only operator can call");
+    ).to.be.revertedWith("Ownable: caller is not the owner");
     await expect(
-      gammaxTreasury
-        .connect(opAccount)
-        .transferToCounterParty(
-          true,
-          USDTToken.address,
-          ethers.utils.parseEther("10000")
-        )
-    ).to.be.revertedWith("not enough ether balance");
-    await gammaxTreasury
-      .connect(opAccount)
-      .transferToCounterParty(
+      gammaxTreasury.transferToCounterParty(
         true,
         USDTToken.address,
-        ethers.utils.parseEther("1")
-      );
+        ethers.utils.parseEther("10000")
+      )
+    ).to.be.revertedWith("not enough ether balance");
+    await gammaxTreasury.transferToCounterParty(
+      true,
+      USDTToken.address,
+      ethers.utils.parseEther("1")
+    );
     const newBalance = await ethers.provider.getBalance(counterParty.address);
     await expect(
-      gammaxTreasury
-        .connect(opAccount)
-        .transferToCounterParty(
-          false,
-          USDTToken.address,
-          ethers.utils.parseUnits("10000")
-        )
-    ).to.be.revertedWith("not enough currency balance");
-    await gammaxTreasury
-      .connect(opAccount)
-      .transferToCounterParty(
+      gammaxTreasury.transferToCounterParty(
         false,
         USDTToken.address,
-        ethers.utils.parseEther("1000")
-      );
+        ethers.utils.parseUnits("10000")
+      )
+    ).to.be.revertedWith("not enough currency balance");
+    await gammaxTreasury.transferToCounterParty(
+      false,
+      USDTToken.address,
+      ethers.utils.parseEther("1000")
+    );
     const newTokenBalance = await USDTToken.balanceOf(counterParty.address);
 
     expect(newTokenBalance.sub(oldTokenBalance)).to.be.equal(
@@ -162,56 +146,44 @@ describe("Gammax Treasury Wallet", () => {
     );
   });
   it("Claim", async () => {
-    await expect(gammaxTreasury.claim(msgHash, signature)).to.be.revertedWith(
-      "only accept truthHolder signed message"
-    );
-    const latestTime = await getLatestBlockTimestamp();
-    const msgData = await gammaxTreasury.encodeMessage(
-      0,
-      account1.address,
-      true,
-      "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-      ethers.utils.parseEther("0.5"),
-      latestTime + duration
-    );
-    const sigData = await truthHolder.signMessage(
-      utils.arrayify(utils.solidityKeccak256(["bytes"], [msgData]))
-    );
-    const msgData1 = await gammaxTreasury.encodeMessage(
-      1,
-      account1.address,
-      false,
-      USDTToken.address,
-      ethers.utils.parseEther("0.5"),
-      latestTime
-    );
+    await expect(
+      gammaxTreasury
+        .connect(account2)
+        .claim(
+          account1.address,
+          true,
+          "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+          ethers.utils.parseEther("0.5")
+        )
+    ).to.be.revertedWith("Ownable: caller is not the owner");
 
-    const sigData1 = await truthHolder.signMessage(
-      utils.arrayify(utils.solidityKeccak256(["bytes"], [msgData1]))
-    );
-    await expect(gammaxTreasury.claim(msgData, sigData)).to.emit(
-      gammaxTreasury,
-      "Claimed"
-    );
-    await expect(gammaxTreasury.claim(msgData, sigData)).to.be.revertedWith(
-      "already claimed"
-    );
-    await expect(gammaxTreasury.claim(msgData1, sigData1)).to.be.revertedWith(
-      "currency not support"
-    );
+    await expect(
+      gammaxTreasury.claim(
+        account1.address,
+        true,
+        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        ethers.utils.parseEther("0.5")
+      )
+    ).to.emit(gammaxTreasury, "Claimed");
+
+    await expect(
+      gammaxTreasury.claim(
+        account1.address,
+        false,
+        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        ethers.utils.parseEther("0.5")
+      )
+    ).to.be.revertedWith("currency not support");
     await gammaxTreasury._addCurrency(USDTToken.address);
-    await expect(gammaxTreasury.claim(msgData1, sigData1)).to.be.revertedWith(
-      "already passed deadline"
-    );
     await gammaxTreasury._pause();
-    await expect(gammaxTreasury.claim(msgHash, signature)).to.be.revertedWith(
-      "paused"
-    );
-    await expect(gammaxTreasury.claim(msgHash, signature)).to.be.revertedWith(
-      "paused"
-    );
-    // const acc = await gammaxTreasury.source(msg, signature);
-    // expect(acc).to.be.equal(truthHolder.address);
+    await expect(
+      gammaxTreasury.claim(
+        account1.address,
+        true,
+        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        ethers.utils.parseEther("0.5")
+      )
+    ).to.be.revertedWith("paused");
   });
   it("Pause", async () => {
     await expect(gammaxTreasury.connect(account1)._pause()).to.be.revertedWith(
@@ -230,38 +202,7 @@ describe("Gammax Treasury Wallet", () => {
     const paused = await gammaxTreasury.paused();
     expect(paused).to.be.equal(false);
   });
-  it("Change Truth Holder", async () => {
-    await expect(
-      gammaxTreasury
-        .connect(account1)
-        ._changeTruthHolder("0x903e3E9b3F9bC6401Ad77ec8953Eb2FB6fEFC3a3")
-    ).to.be.revertedWith("Ownable: caller is not the owner");
-    const oldHolder = await gammaxTreasury.truthHolder();
-    expect(oldHolder).to.be.equal(truthHolder.address);
-    await expect(
-      gammaxTreasury._changeTruthHolder(
-        "0x903e3E9b3F9bC6401Ad77ec8953Eb2FB6fEFC3a3"
-      )
-    ).to.emit(gammaxTreasury, "NewTruthHolder");
-    const newHolder = await gammaxTreasury.truthHolder();
-    expect(newHolder).to.be.equal("0x903e3E9b3F9bC6401Ad77ec8953Eb2FB6fEFC3a3");
-  });
-  it("Set Operator", async () => {
-    await expect(
-      gammaxTreasury
-        .connect(account1)
-        ._setOperator("0x903e3E9b3F9bC6401Ad77ec8953Eb2FB6fEFC3a3")
-    ).to.be.revertedWith("Ownable: caller is not the owner");
-    const oldOperator = await gammaxTreasury.operator();
-    expect(oldOperator).to.be.equal(opAccount.address);
-    await expect(
-      gammaxTreasury._setOperator("0x903e3E9b3F9bC6401Ad77ec8953Eb2FB6fEFC3a3")
-    ).to.emit(gammaxTreasury, "NewOperator");
-    const newOperator = await gammaxTreasury.operator();
-    expect(newOperator).to.be.equal(
-      "0x903e3E9b3F9bC6401Ad77ec8953Eb2FB6fEFC3a3"
-    );
-  });
+
   it("Set CounterParty", async () => {
     await expect(
       gammaxTreasury
