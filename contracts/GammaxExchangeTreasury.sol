@@ -5,15 +5,21 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 pragma experimental ABIEncoderV2;
 
-contract GammaxExchangeTreasury is Ownable {
+contract GammaxExchangeTreasury is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    event ReceiveEther(address sender, uint256 amount);
     event Claimed(
         address indexed to,
+        bool isETH,
+        address currency,
+        uint256 amount
+    );
+    event Deposited(
+        address indexed from,
         bool isETH,
         address currency,
         uint256 amount
@@ -26,9 +32,11 @@ contract GammaxExchangeTreasury is Ownable {
     event RemoveCurrency(address indexed currency);
 
     bool public paused;
+    address constant ethAddress = 0x0000000000000000000000000000000000000000;
     address payable public counterParty;
     mapping(address => bool) public supportCurrency;
     mapping(uint256 => uint256) public claimHistory;
+    mapping(address => mapping(address => uint256)) userBalance;
 
     modifier notPaused() {
         require(!paused, "paused");
@@ -41,11 +49,12 @@ contract GammaxExchangeTreasury is Ownable {
     }
 
     // This function is called for plain Ether transfers
-    receive() external payable {
-        if (msg.value > 0) {
-            emit ReceiveEther(msg.sender, msg.value);
-        }
-    }
+    // receive() external payable {
+    //     if (msg.value > 0) {
+    //         userBalance[msg.sender][ethAddress] += msg.value;
+    //         emit ReceiveEther(msg.sender, msg.value);
+    //     }
+    // }
 
     function _transfer(
         address payable to,
@@ -76,14 +85,37 @@ contract GammaxExchangeTreasury is Ownable {
         emit TransferToCounterParty(isETH, currency, amount);
     }
 
+    function deposit(
+        address depositor,
+        bool isETH,
+        address currency,
+        uint256 amount
+    ) public payable nonReentrant {
+        require(isETH || supportCurrency[currency], "currency not support");
+        if (isETH) {
+            userBalance[depositor][ethAddress] += msg.value;
+        } else {
+            IERC20 token = IERC20(currency);
+            userBalance[depositor][currency] += amount;
+            token.safeTransferFrom(depositor, address(this), amount);
+        }
+        emit Deposited(depositor, isETH, currency, amount);
+    }
+
     function claim(
         address payable to,
         bool isETH,
         address currency,
         uint256 amount
-    ) external onlyOwner notPaused {
+    ) external onlyOwner notPaused nonReentrant {
         require(isETH || supportCurrency[currency], "currency not support");
-
+        if (isETH) {
+            require(userBalance[to][ethAddress] > amount, "insuffcient fund");
+            userBalance[to][ethAddress] -= amount;
+        } else {
+            require(userBalance[to][currency] > amount, "insuffcient fund");
+            userBalance[to][currency] -= amount;
+        }
         _transfer(to, isETH, currency, amount);
         emit Claimed(to, isETH, currency, amount);
     }
