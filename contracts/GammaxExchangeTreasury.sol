@@ -12,19 +12,9 @@ pragma experimental ABIEncoderV2;
 contract GammaxExchangeTreasury is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    event Claimed(
-        address indexed to,
-        bool isETH,
-        address currency,
-        uint256 amount
-    );
-    event Deposited(
-        address indexed from,
-        bool isETH,
-        address currency,
-        uint256 amount
-    );
-    event TransferToCounterParty(bool isETH, address currency, uint256 amount);
+    event Claimed(address indexed to, address currency, uint256 amount);
+    event Deposited(address indexed from, address currency, uint256 amount);
+    event TransferToCounterParty(address currency, uint256 amount);
     event Paused();
     event Unpaused();
     event NewCounterParty(address oldCounterParty, address newCounterParty);
@@ -36,7 +26,7 @@ contract GammaxExchangeTreasury is Ownable, ReentrancyGuard {
     address payable public counterParty;
     mapping(address => bool) public supportCurrency;
     mapping(uint256 => uint256) public claimHistory;
-    mapping(address => mapping(address => uint256)) userBalance;
+    mapping(address => mapping(address => uint256)) public userBalance;
 
     modifier notPaused() {
         require(!paused, "paused");
@@ -46,23 +36,22 @@ contract GammaxExchangeTreasury is Ownable, ReentrancyGuard {
     constructor(address payable counterParty_) {
         paused = false;
         counterParty = counterParty_;
+        supportCurrency[ethAddress] = true;
     }
 
     // This function is called for plain Ether transfers
     // receive() external payable {
     //     if (msg.value > 0) {
     //         userBalance[msg.sender][ethAddress] += msg.value;
-    //         emit ReceiveEther(msg.sender, msg.value);
     //     }
     // }
 
     function _transfer(
         address payable to,
-        bool isETH,
         address currency,
         uint256 amount
     ) internal {
-        if (isETH) {
+        if (currency == ethAddress) {
             require(
                 address(this).balance >= amount,
                 "not enough ether balance"
@@ -76,48 +65,42 @@ contract GammaxExchangeTreasury is Ownable, ReentrancyGuard {
         }
     }
 
-    function transferToCounterParty(
-        bool isETH,
-        address currency,
-        uint256 amount
-    ) external onlyOwner {
-        _transfer(counterParty, isETH, currency, amount);
-        emit TransferToCounterParty(isETH, currency, amount);
+    function transferToCounterParty(address currency, uint256 amount)
+        external
+        onlyOwner
+    {
+        _transfer(counterParty, currency, amount);
+        emit TransferToCounterParty(currency, amount);
     }
 
-    function deposit(
-        address depositor,
-        bool isETH,
-        address currency,
-        uint256 amount
-    ) public payable nonReentrant {
-        require(isETH || supportCurrency[currency], "currency not support");
-        if (isETH) {
-            userBalance[depositor][ethAddress] += msg.value;
+    function deposit(address currency, uint256 amount)
+        public
+        payable
+        nonReentrant
+    {
+        require(supportCurrency[currency], "currency not support");
+        if (currency == ethAddress) {
+            require(msg.value == amount, "the amount should be the same.");
         } else {
             IERC20 token = IERC20(currency);
-            userBalance[depositor][currency] += amount;
-            token.safeTransferFrom(depositor, address(this), amount);
+            token.safeTransferFrom(msg.sender, address(this), amount);
         }
-        emit Deposited(depositor, isETH, currency, amount);
+        userBalance[msg.sender][currency] += amount;
+
+        emit Deposited(msg.sender, currency, amount);
     }
 
     function claim(
         address payable to,
-        bool isETH,
         address currency,
         uint256 amount
     ) external onlyOwner notPaused nonReentrant {
-        require(isETH || supportCurrency[currency], "currency not support");
-        if (isETH) {
-            require(userBalance[to][ethAddress] > amount, "insuffcient fund");
-            userBalance[to][ethAddress] -= amount;
-        } else {
-            require(userBalance[to][currency] > amount, "insuffcient fund");
-            userBalance[to][currency] -= amount;
-        }
-        _transfer(to, isETH, currency, amount);
-        emit Claimed(to, isETH, currency, amount);
+        require(supportCurrency[currency], "currency not support");
+        require(userBalance[to][currency] > amount, "insuffcient fund");
+        userBalance[to][currency] -= amount;
+
+        _transfer(to, currency, amount);
+        emit Claimed(to, currency, amount);
     }
 
     function _pause() external onlyOwner {

@@ -1,8 +1,7 @@
 import { Usdt } from "../typechain/Usdt";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/dist/src/signer-with-address";
-import chai, { util } from "chai";
+import chai from "chai";
 import { solidity } from "ethereum-waffle";
-import { utils } from "ethers";
 import { ethers } from "hardhat";
 
 import {
@@ -25,14 +24,11 @@ describe("Gammax Treasury Wallet", () => {
     truthHolder,
     opAccount,
     counterParty: SignerWithAddress;
-  let msg, signature, signature1, tokenMsg, msgHash, tokenMsgHash;
-  const duration = 604800;
-  const depositAmount = ethers.utils.parseUnits("100", 18);
-  const swapAmount = ethers.utils.parseUnits("50", 18);
-  const swapedAmount = ethers.utils.parseUnits("20", 18);
+  const etherAddress = "0x0000000000000000000000000000000000000000";
 
   const mintAmount = ethers.utils.parseUnits("2000", 18);
-  const operator = before(async () => {
+
+  before(async () => {
     [owner, account1, account2, truthHolder, opAccount, counterParty] =
       await ethers.getSigners();
   });
@@ -45,97 +41,44 @@ describe("Gammax Treasury Wallet", () => {
     USDTToken = await USDT.deploy();
     gammaxTreasury = await GammaxExchange.deploy(counterParty.address);
     const latestTime = await getLatestBlockTimestamp();
-    msg = ethers.utils.solidityPack(
-      ["uint256", "address", "bool", "address", "uint256", "uint256"],
-      [
-        0,
-        account1.address,
-        true,
-        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-        ethers.utils.parseEther("0.5"),
-        latestTime + duration,
-      ]
-    );
-    msgHash = ethers.utils.solidityKeccak256(
-      ["uint256", "address", "bool", "address", "uint256", "uint256"],
-      [
-        0,
-        account1.address,
-        true,
-        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-        ethers.utils.parseEther("0.5"),
-        latestTime + duration,
-      ]
-    );
-    tokenMsg = ethers.utils.solidityPack(
-      ["uint256", "address", "bool", "address", "uint256", "uint256"],
-      [
-        1,
-        account1.address,
-        false,
-        USDTToken.address,
-        ethers.utils.parseUnits("100"),
-        latestTime,
-      ]
-    );
-    tokenMsgHash = ethers.utils.solidityKeccak256(
-      ["uint256", "address", "bool", "address", "uint256", "uint256"],
-      [
-        0,
-        account1.address,
-        false,
-        USDTToken.address,
-        ethers.utils.parseUnits("100"),
-        latestTime,
-      ]
-    );
-    signature = await truthHolder.signMessage(utils.arrayify(msgHash));
-    signature1 = await truthHolder.signMessage(utils.arrayify(tokenMsgHash));
-    await USDTToken.mint(gammaxTreasury.address, mintAmount);
-    await USDTToken.approve(
+    await USDTToken.connect(account2).approve(
       gammaxTreasury.address,
       ethers.constants.MaxUint256
     );
-    await owner.sendTransaction({
-      to: gammaxTreasury.address,
-      value: ethers.utils.parseEther("3.0"), // Sends exactly 1.0 ether
+    await USDTToken.mint(gammaxTreasury.address, mintAmount);
+
+    await USDTToken.mint(account2.address, mintAmount);
+    await gammaxTreasury.deposit(etherAddress, ethers.utils.parseEther("3.0"), {
+      value: ethers.utils.parseEther("3.0"),
     });
-    // notSignature = await account1.signMessage(utils.arrayify(msg));
   });
+
   it("Trasfer token or eth to CounterParty", async () => {
     const oldBalance = await ethers.provider.getBalance(counterParty.address);
     const oldTokenBalance = await USDTToken.balanceOf(counterParty.address);
     await expect(
       gammaxTreasury
         .connect(account1)
-        .transferToCounterParty(
-          true,
-          USDTToken.address,
-          ethers.utils.parseEther("1")
-        )
+        .transferToCounterParty(USDTToken.address, ethers.utils.parseEther("1"))
     ).to.be.revertedWith("Ownable: caller is not the owner");
     await expect(
       gammaxTreasury.transferToCounterParty(
-        true,
         USDTToken.address,
         ethers.utils.parseEther("10000")
       )
-    ).to.be.revertedWith("not enough ether balance");
+    ).to.be.revertedWith("not enough currency balance");
     await gammaxTreasury.transferToCounterParty(
-      true,
-      USDTToken.address,
+      etherAddress,
       ethers.utils.parseEther("1")
     );
     const newBalance = await ethers.provider.getBalance(counterParty.address);
     await expect(
       gammaxTreasury.transferToCounterParty(
-        false,
         USDTToken.address,
         ethers.utils.parseUnits("10000")
       )
     ).to.be.revertedWith("not enough currency balance");
     await gammaxTreasury.transferToCounterParty(
-      false,
       USDTToken.address,
       ethers.utils.parseEther("1000")
     );
@@ -145,46 +88,116 @@ describe("Gammax Treasury Wallet", () => {
       ethers.utils.parseEther("1000")
     );
   });
+
+  it("Deposit", async () => {
+    await expect(
+      gammaxTreasury.deposit(
+        USDTToken.address,
+        ethers.utils.parseUnits("10000")
+      )
+    ).to.be.revertedWith("currency not support");
+    await gammaxTreasury._addCurrency(USDTToken.address);
+    await gammaxTreasury
+      .connect(account2)
+      .deposit(USDTToken.address, ethers.utils.parseUnits("1000"));
+    const dAmount = await gammaxTreasury.userBalance(
+      account2.address,
+      USDTToken.address
+    );
+    expect(dAmount).to.be.equal(ethers.utils.parseUnits("1000"));
+    await expect(
+      gammaxTreasury
+        .connect(account2)
+        .deposit(etherAddress, ethers.utils.parseEther("0.1"), {
+          value: ethers.utils.parseEther("0.2"),
+        })
+    ).to.be.revertedWith("the amount should be the same.");
+    await gammaxTreasury
+      .connect(account2)
+      .deposit(etherAddress, ethers.utils.parseEther("0.1"), {
+        value: ethers.utils.parseEther("0.1"),
+      });
+    const eAmount = await gammaxTreasury.userBalance(
+      account2.address,
+      etherAddress
+    );
+    expect(eAmount).to.be.equal(ethers.utils.parseEther("0.1"));
+  });
+
   it("Claim", async () => {
+    await expect(
+      gammaxTreasury.claim(
+        account1.address,
+        USDTToken.address,
+        ethers.utils.parseUnits("10000")
+      )
+    ).to.be.revertedWith("currency not support");
+    await gammaxTreasury._addCurrency(USDTToken.address);
+    await expect(
+      gammaxTreasury.claim(
+        account1.address,
+        USDTToken.address,
+        ethers.utils.parseUnits("10000")
+      )
+    ).to.be.revertedWith("insuffcient fund");
+    await expect(
+      gammaxTreasury
+        .connect(account2)
+        .deposit(USDTToken.address, ethers.utils.parseUnits("1000"))
+    ).to.emit(gammaxTreasury, "Deposited");
     await expect(
       gammaxTreasury
         .connect(account2)
         .claim(
           account1.address,
-          true,
-          "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-          ethers.utils.parseEther("0.5")
+          USDTToken.address,
+          ethers.utils.parseUnits("500")
         )
     ).to.be.revertedWith("Ownable: caller is not the owner");
-
     await expect(
       gammaxTreasury.claim(
-        account1.address,
-        true,
-        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-        ethers.utils.parseEther("0.5")
+        account2.address,
+        USDTToken.address,
+        ethers.utils.parseUnits("500")
       )
     ).to.emit(gammaxTreasury, "Claimed");
 
+    const dAmount = await gammaxTreasury.userBalance(
+      account2.address,
+      USDTToken.address
+    );
+    expect(dAmount).to.be.equal(ethers.utils.parseUnits("500"));
+    const wAmount = await USDTToken.balanceOf(gammaxTreasury.address);
+    expect(wAmount).to.be.equal(ethers.utils.parseUnits("2500"));
+    await expect(
+      gammaxTreasury
+        .connect(account2)
+        .deposit(etherAddress, ethers.utils.parseEther("1"), {
+          value: ethers.utils.parseEther("1.0"),
+        })
+    ).to.emit(gammaxTreasury, "Deposited");
     await expect(
       gammaxTreasury.claim(
-        account1.address,
-        false,
-        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        account2.address,
+        etherAddress,
         ethers.utils.parseEther("0.5")
       )
-    ).to.be.revertedWith("currency not support");
-    await gammaxTreasury._addCurrency(USDTToken.address);
+    ).to.emit(gammaxTreasury, "Claimed");
+    const dBalance = await gammaxTreasury.userBalance(
+      account2.address,
+      etherAddress
+    );
+    expect(dBalance).to.be.equal(ethers.utils.parseEther("0.5"));
     await gammaxTreasury._pause();
     await expect(
       gammaxTreasury.claim(
-        account1.address,
-        true,
-        "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-        ethers.utils.parseEther("0.5")
+        account2.address,
+        USDTToken.address,
+        ethers.utils.parseUnits("100")
       )
     ).to.be.revertedWith("paused");
   });
+
   it("Pause", async () => {
     await expect(gammaxTreasury.connect(account1)._pause()).to.be.revertedWith(
       "Ownable: caller is not the owner"
@@ -193,6 +206,7 @@ describe("Gammax Treasury Wallet", () => {
     const paused = await gammaxTreasury.paused();
     expect(paused).to.be.equal(true);
   });
+
   it("UnPause", async () => {
     await expect(
       gammaxTreasury.connect(account1)._unpause()
@@ -221,6 +235,7 @@ describe("Gammax Treasury Wallet", () => {
       "0x903e3E9b3F9bC6401Ad77ec8953Eb2FB6fEFC3a3"
     );
   });
+
   it("Add new currency", async () => {
     await expect(
       gammaxTreasury
@@ -235,6 +250,7 @@ describe("Gammax Treasury Wallet", () => {
     );
     expect(newCurrency).to.be.equal(true);
   });
+
   it("remove currency", async () => {
     await expect(
       gammaxTreasury
