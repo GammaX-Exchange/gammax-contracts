@@ -6,6 +6,7 @@ import "@openzeppelin/hardhat-upgrades";
 import "hardhat-deploy";
 import "hardhat-typechain";
 import "solidity-coverage";
+
 require("dotenv").config();
 const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
