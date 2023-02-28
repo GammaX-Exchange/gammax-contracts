@@ -74,13 +74,13 @@ contract GammaxExchangeTreasury is Ownable,ReentrancyGuard {
         emit Deposited(account,ethAddress, amount);
     }
 
-    function depositERC20(address user, uint256 amount, address currency) 
+    function depositERC20(address from, address user, uint256 amount, address currency) 
         public
         notPaused
         nonReentrant
         currencySupported(currency)
     {
-        IERC20(currency).safeTransferFrom(user, address(this), amount);
+        IERC20(currency).safeTransferFrom(from, address(this), amount);
         userBalance[user][currency] += amount;
         emit Deposited(user,currency, amount);
     }
