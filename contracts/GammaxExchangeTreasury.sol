@@ -4,88 +4,109 @@ pragma solidity ^0.8.2;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 pragma experimental ABIEncoderV2;
 
-contract GammaxExchangeTreasury is Ownable {
+contract GammaxExchangeTreasury is Ownable,ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    event ReceiveEther(address sender, uint256 amount);
-    event Claimed(
-        address indexed to,
-        bool isETH,
+    event Deposited(
+        address indexed from,
         address currency,
         uint256 amount
     );
-    event TransferToCounterParty(bool isETH, address currency, uint256 amount);
+    
+    event Withdrawn(
+        address indexed to,
+        address currency,
+        uint256 amount
+    );
     event Paused();
     event Unpaused();
-    event NewCounterParty(address oldCounterParty, address newCounterParty);
     event AddCurrency(address indexed currency);
     event RemoveCurrency(address indexed currency);
 
     bool public paused;
-    address payable public counterParty;
-    mapping(address => bool) public supportCurrency;
-    mapping(uint256 => uint256) public claimHistory;
+    address constant ethAddress = 0x0000000000000000000000000000000000000000;
+
+    mapping(address => mapping(address => uint256)) private userBalance;
+    mapping(address => bool) private supportCurrency;
+
+    constructor() {
+        paused = false;
+    }
 
     modifier notPaused() {
         require(!paused, "paused");
         _;
     }
 
-    constructor(address payable counterParty_) {
-        paused = false;
-        counterParty = counterParty_;
+    modifier availableUserBalance(address user, address currency, uint amount){
+        require(userBalance[user][currency] >= amount, "Not enough funds for this user");
+        _;
     }
 
-    // This function is called for plain Ether transfers
-    receive() external payable {
-        if (msg.value > 0) {
-            emit ReceiveEther(msg.sender, msg.value);
-        }
+    modifier currencySupported(address currency){
+        require(supportCurrency[currency], "Currency not supported");
+        _;
     }
 
-    function _transfer(
-        address payable to,
-        bool isETH,
-        address currency,
-        uint256 amount
-    ) internal {
-        if (isETH) {
-            require(
-                address(this).balance >= amount,
-                "not enough ether balance"
-            );
-            require(to.send(amount), "ether transfer failed");
-        } else {
-            IERC20 token = IERC20(currency);
-            uint256 balance = token.balanceOf(address(this));
-            require(balance >= amount, "not enough currency balance");
-            token.safeTransfer(to, amount);
-        }
+    function getBalance(address user,address currency) 
+        public 
+        view 
+        returns(uint256)
+    {
+        return userBalance[user][currency];
     }
 
-    function transferToCounterParty(
-        bool isETH,
-        address currency,
-        uint256 amount
-    ) external onlyOwner {
-        _transfer(counterParty, isETH, currency, amount);
-        emit TransferToCounterParty(isETH, currency, amount);
+    receive() 
+        external 
+        payable 
+        notPaused
+        nonReentrant
+    {
+        uint256 amount = msg.value;
+        require(amount > 0, "Not enough funds to deposit");
+        address account = msg.sender;
+        userBalance[account][ethAddress] += msg.value;
+        emit Deposited(account,ethAddress, amount);
     }
 
-    function claim(
-        address payable to,
-        bool isETH,
-        address currency,
-        uint256 amount
-    ) external onlyOwner notPaused {
-        require(isETH || supportCurrency[currency], "currency not support");
+    function depositERC20(address from, address user, uint256 amount, address currency) 
+        public
+        notPaused
+        nonReentrant
+        currencySupported(currency)
+    {
+        IERC20(currency).safeTransferFrom(from, address(this), amount);
+        userBalance[user][currency] += amount;
+        emit Deposited(user,currency, amount);
+    }
 
-        _transfer(to, isETH, currency, amount);
-        emit Claimed(to, isETH, currency, amount);
+    function withdrawERC20(address user,uint256 amount,address currency) 
+        public 
+        notPaused
+        nonReentrant
+        onlyOwner
+        availableUserBalance(user,currency,amount)
+        currencySupported(currency)
+    {
+        require(IERC20(currency).balanceOf(address(this)) >= amount, "Not enough funds in treasury");
+        userBalance[user][currency] -= amount;
+        IERC20(currency).transfer(user, amount);
+        emit Withdrawn(user, currency, amount);
+    }
+
+    function withdrawEth(address payable user,uint256 amount)
+        public 
+        notPaused
+        nonReentrant
+        availableUserBalance(user,ethAddress,amount)
+    {
+        require(address(this).balance >= amount, "Not enough ether balance");
+        userBalance[user][ethAddress] -= amount;
+        require(user.send(amount), "Ether transfer failed");
     }
 
     function _pause() external onlyOwner {
@@ -96,15 +117,6 @@ contract GammaxExchangeTreasury is Ownable {
     function _unpause() external onlyOwner {
         paused = false;
         emit Unpaused();
-    }
-
-    function _setCounterParty(address payable newCounterParty)
-        external
-        onlyOwner
-    {
-        address payable oldCounterParty = counterParty;
-        counterParty = newCounterParty;
-        emit NewCounterParty(oldCounterParty, newCounterParty);
     }
 
     function _addCurrency(address currency) external onlyOwner {
