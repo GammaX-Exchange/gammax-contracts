@@ -31,7 +31,7 @@ contract GammaxExchangeTreasury is Ownable,ReentrancyGuard {
     address constant ethAddress = 0x0000000000000000000000000000000000000000;
 
     mapping(address => mapping(address => uint256)) private userBalance;
-    mapping(address => bool) private supportCurrency;
+    mapping(address => bool) public supportCurrency;
 
     constructor() {
         paused = false;
@@ -89,8 +89,8 @@ contract GammaxExchangeTreasury is Ownable,ReentrancyGuard {
         notPaused
         nonReentrant
         onlyOwner
-        availableUserBalance(user,currency,amount)
         currencySupported(currency)
+        availableUserBalance(user,currency,amount)
     {
         require(IERC20(currency).balanceOf(address(this)) >= amount, "Not enough funds in treasury");
         userBalance[user][currency] -= amount;

@@ -23,19 +23,19 @@ const config: HardhatUserConfig = {
     ],
   },
   networks: {
-    hardhat: {
-      chainId: 1,
-      forking: {
-        // eslint-disable-next-line
-        enabled: true,
-        url: `https://mainnet.infura.io/v3/${process.env.INFURAID}`,
-        blockNumber: 15941122,
-      },
-    },
-    goerli: {
-      url: `https://goerli.infura.io/v3/${process.env.INFURAID}`,
-      accounts: [process.env.MMNOMIC as string],
-    },
+    // hardhat: {
+    //   chainId: 1,
+    //   forking: {
+    //     // eslint-disable-next-line
+    //     enabled: true,
+    //     url: `https://mainnet.infura.io/v3/${process.env.INFURAID}`,
+    //     blockNumber: 15941122,
+    //   },
+    // },
+    // goerli: {
+    //   url: `https://goerli.infura.io/v3/${process.env.INFURAID}`,
+    //   accounts: [process.env.MMNOMIC as string],
+    // },
     localhost: {
       chainId: 31337,
       url: "http://127.0.0.1:8545",
