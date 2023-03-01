@@ -260,7 +260,74 @@ describe("Gammax Treasury", () => {
   })
   // Tests for withdrawing Eth
 
+  // Tests for transferring ERC20
+  describe("Transferring ERC20 token in Treasury", () => {
+    it("Should emit Transferred event", async () => {
+      const depositAmount = ethers.utils.parseEther("1");
+      await gammaxTreasury
+      .depositERC20(
+        account1.address,
+        account1.address,
+        depositAmount,
+        USDTToken.address)
+      const transferAmount = ethers.utils.parseEther("1");
+      expect (await gammaxTreasury
+      .transferERC20(
+          account1.address,
+          account2.address,
+          transferAmount,
+          USDTToken.address)).to.emit(gammaxTreasury,"Transferred");
+    })
 
+    it("Should revert if currency has not been added", async () => {
+      const currency = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+      const depositAmount = ethers.utils.parseEther("1");
+      await gammaxTreasury
+      .depositERC20(
+        account1.address,
+        account1.address,
+        depositAmount,
+        USDTToken.address)
+      const transferAmount = ethers.utils.parseEther("1");
+      await expect( gammaxTreasury
+        .transferERC20(
+          account1.address,
+          account2.address,
+          transferAmount,
+          currency) 
+      ).to.be.revertedWith("Currency not supported");
+    })  
+
+    it("Should increase account 2 by 1USDT in treasury state", async () => {
+      // First deposit into account 1
+      const depositAmount = ethers.utils.parseEther("1");
+      await gammaxTreasury
+      .connect(account1)
+      .depositERC20(
+        account1.address,
+        account1.address,
+        depositAmount,
+        USDTToken.address)
+      // Stored initial balance of account 2
+      const oldBalance = await gammaxTreasury
+                            .getBalance(account2.address,USDTToken.address)
+      // Then transfer from account 1 to account 2
+      const transferAmount = ethers.utils.parseEther("1");
+      await gammaxTreasury
+          .transferERC20(
+            account1.address,
+            account2.address,
+            transferAmount,
+            USDTToken.address)
+      // store increased balance  of account 2
+      const newBalance = await gammaxTreasury
+                            .getBalance(account2.address,USDTToken.address)
+      expect( newBalance.sub(oldBalance)
+      ).to.be.equal(transferAmount);
+
+    })
+
+  })
 
   // Tests for adding currency to contract
   describe("Adding currency to the contract", () => {
