@@ -22,6 +22,14 @@ contract GammaxExchangeTreasury is Ownable,ReentrancyGuard {
         address currency,
         uint256 amount
     );
+
+    event Transferred(
+        address indexed from,
+        address to,
+        address currency,
+        uint256 amount
+    );
+
     event Paused();
     event Unpaused();
     event AddCurrency(address indexed currency);
@@ -31,7 +39,7 @@ contract GammaxExchangeTreasury is Ownable,ReentrancyGuard {
     address constant ethAddress = 0x0000000000000000000000000000000000000000;
 
     mapping(address => mapping(address => uint256)) private userBalance;
-    mapping(address => bool) private supportCurrency;
+    mapping(address => bool) public supportCurrency;
 
     constructor() {
         paused = false;
@@ -89,8 +97,8 @@ contract GammaxExchangeTreasury is Ownable,ReentrancyGuard {
         notPaused
         nonReentrant
         onlyOwner
-        availableUserBalance(user,currency,amount)
         currencySupported(currency)
+        availableUserBalance(user,currency,amount)
     {
         require(IERC20(currency).balanceOf(address(this)) >= amount, "Not enough funds in treasury");
         userBalance[user][currency] -= amount;
@@ -107,6 +115,18 @@ contract GammaxExchangeTreasury is Ownable,ReentrancyGuard {
         require(address(this).balance >= amount, "Not enough ether balance");
         userBalance[user][ethAddress] -= amount;
         require(user.send(amount), "Ether transfer failed");
+    }
+
+    function transferERC20(address from, address to, uint256 amount, address currency)
+        external 
+        notPaused
+        nonReentrant
+        currencySupported(currency)
+        availableUserBalance(from,currency,amount)
+    {
+        userBalance[from][currency] -= amount;
+        userBalance[to][currency] += amount;
+        emit Transferred(from, to, currency, amount);
     }
 
     function _pause() external onlyOwner {
