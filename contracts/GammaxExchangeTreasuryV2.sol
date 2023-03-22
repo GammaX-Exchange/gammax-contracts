@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 pragma experimental ABIEncoderV2;
 
-contract GammaxExchangeTreasury is Ownable,ReentrancyGuard {
+contract Treasury is Ownable,ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     event Deposited(
@@ -86,7 +86,7 @@ contract GammaxExchangeTreasury is Ownable,ReentrancyGuard {
         external
         nonReentrant
     {
-        uint userHash = uint(keccak256(abi.encode(message)));
+        uint userHash = uint(keccak256(message));
         // verify hash against merkle root
         require(verifyProof(userHash,proofs), "Invalid hash");
         
