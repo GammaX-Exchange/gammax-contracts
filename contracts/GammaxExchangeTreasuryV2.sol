@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 pragma experimental ABIEncoderV2;
 
@@ -34,7 +35,7 @@ contract Treasury is Ownable,ReentrancyGuard {
     address constant ethAddress = 0x0000000000000000000000000000000000000000;
 
     mapping(address => mapping( uint => uint256) ) merkleReceipt;
-
+    mapping(address => uint256) private ethBalances;
     mapping(address => bool) public supportCurrency;
 
     constructor() {
@@ -50,10 +51,21 @@ contract Treasury is Ownable,ReentrancyGuard {
         external 
         payable 
         notPaused
+        nonReentrant
     {
         uint256 amount = msg.value;
+        address account = msg.sender; 
+        ethBalances[account] = amount;
         require(amount > 0, "Not enough funds to deposit");
-        emit Deposited(msg.sender,ethAddress, amount);
+        emit Deposited(account,ethAddress, amount);
+    }
+
+    function getEthBalance(address user)
+        external
+        view
+        returns(uint256)
+    {
+        return ethBalances[user];
     }
 
     function depositERC20(address from, address user, uint256 amount, address currency) 
@@ -65,12 +77,15 @@ contract Treasury is Ownable,ReentrancyGuard {
         emit Deposited(user,currency, amount);
     }
 
-    function withdrawERC20(bytes calldata message, uint256 amount) 
+    function withdrawERC20(bytes calldata message,bytes memory signature,uint256 amount) 
         public 
         notPaused
         onlyOwner
     {
         (address user, address currency) = withdrawCheck(message,amount);
+
+        // Verify that owner of this message has signed for withdraw
+        require(source(message,signature) == user, "Invalid signature");
 
         require(IERC20(currency).balanceOf(address(this)) >= amount, "Not enough funds in treasury");
         
@@ -86,11 +101,14 @@ contract Treasury is Ownable,ReentrancyGuard {
         external
         nonReentrant
     {
-        uint userHash = uint(keccak256(message));
         // verify hash against merkle root
+        uint userHash = uint(keccak256(message));
         require(verifyProof(userHash,proofs), "Invalid hash");
         
         (address user, address currency) = withdrawCheck(message,amount);
+
+        // Only owner of message can perform forced withdraw
+        require(user == msg.sender,"Invalid user");
 
         require(IERC20(currency).balanceOf(address(this)) >= amount, "Not enough funds in treasury");
 
@@ -125,7 +143,10 @@ contract Treasury is Ownable,ReentrancyGuard {
         nonReentrant
         onlyOwner
     {
+        uint256 balance = ethBalances[user];
         require(address(this).balance >= amount, "Not enough ether balance");
+        require(balance >= amount, "Not enough ether in contract");
+        ethBalances[user] = balance-amount;
         require(user.send(amount), "Ether transfer failed");
         emit Withdrawn(user, ethAddress, amount);
     }
@@ -168,16 +189,16 @@ contract Treasury is Ownable,ReentrancyGuard {
     }
 
 
-    function hash(uint _a) internal pure returns(uint) {
+    function hash(uint _a) private pure returns(uint) {
       return uint(keccak256(abi.encode(_a)));
     }
 
-    function pairHash(uint _a, uint _b) internal pure returns(uint) {
+    function pairHash(uint _a, uint _b) private pure returns(uint) {
       return hash(hash(_a) ^ hash(_b));
     }
 
     function verifyProof(uint _value, uint[] calldata _proof)
-        public view returns (bool) 
+        private view returns (bool) 
     {
       uint temp = _value;
       uint i;
@@ -187,5 +208,14 @@ contract Treasury is Ownable,ReentrancyGuard {
       }
 
       return temp == merkleRoot;
+    }
+
+    function source(bytes memory message, bytes memory signature) 
+        private 
+        pure 
+        returns (address) 
+    {
+        bytes32 hashed = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(message)));
+        return ECDSA.recover(hashed, signature);
     }
 }
