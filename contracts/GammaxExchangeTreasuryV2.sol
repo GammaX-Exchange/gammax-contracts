@@ -32,6 +32,7 @@ contract Treasury is Ownable,ReentrancyGuard {
 
     bool public paused;
     uint public merkleRoot;
+    string public stateID;
     address constant ethAddress = 0x0000000000000000000000000000000000000000;
 
     mapping(address => mapping( uint => uint256) ) merkleReceipt;
@@ -151,12 +152,13 @@ contract Treasury is Ownable,ReentrancyGuard {
         emit Withdrawn(user, ethAddress, amount);
     }
 
-    function updateState(uint root)
+    function updateState(uint root, string memory _stateID)
         external
         onlyOwner
         notPaused
     {
         merkleRoot = root;
+        stateID=_stateID;
         emit UpdateState();
     }
 
@@ -183,9 +185,9 @@ contract Treasury is Ownable,ReentrancyGuard {
     function getRoot() 
         public 
         view 
-        returns (uint) 
+        returns (uint,string memory) 
     {
-      return merkleRoot;
+      return (merkleRoot,stateID);
     }
 
 

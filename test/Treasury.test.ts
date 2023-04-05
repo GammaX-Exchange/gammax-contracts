@@ -36,6 +36,7 @@ describe("Treasury Contract With Merkle Root", () => {
     const initialDepositAmount = ethers.utils.parseEther("50")
     const userBalance = initialTransferAmount.sub(initialDepositAmount)
     const contractBalance = ethers.utils.parseEther("200")
+    const ipfsCID = "IPFS_CID"
 
     before(async () => {
         [owner, account1, account2,account3] = await ethers.getSigners();
@@ -97,23 +98,25 @@ describe("Treasury Contract With Merkle Root", () => {
 
         // Update the state to have merkle root of users accounts
         merkleRoot = getMerkleRoot(hashes).toString()
-        await treasury.updateState(merkleRoot)
+        
+        await treasury.updateState(merkleRoot,ipfsCID)
         
     });
 
     describe("Updating state in Treasury", () => {
 
         it("Should have the correct state/merkle root", async() => {
-            expect(await treasury.getRoot()).to.be.equal(merkleRoot)
+            const root = await treasury.getRoot()
+            expect(root[0]).to.be.equal(merkleRoot)
         })
 
         it("Should emit UpdateState event", async() => {
-            await expect(treasury.updateState(merkleRoot))
+            await expect(treasury.updateState(merkleRoot,ipfsCID))
             .to.emit(treasury,"UpdateState")
         })
 
         it("Should revert if owner is not creating the transaction", async() => {
-            await expect(treasury.connect(account1).updateState(merkleRoot))
+            await expect(treasury.connect(account1).updateState(merkleRoot,ipfsCID))
             .to.be.revertedWith("Ownable: caller is not the owner");
         })
 
